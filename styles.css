@@ -20,5 +20,9 @@ th {
 }
 
 .red-row {
-    background-color: #ffcccc; /* Cambia el color a rojo */
+    background-color: #ffcccc; 
 }
+.gray-row {
+    background-color: #eeeeee; 
+    font-style: italic;
+~                          
