@@ -1,5 +1,5 @@
 # get_cloudflare_registers.py
-# NMS - 11/11/2023
+# NMS - 07/12/2023
 # Description:
 # Given an Cloudflare token identification bearer returns info for A/CNAME registers, proxy status and type of register of all domains configured for this zone
 #
@@ -8,7 +8,9 @@
 # python3 -m pip install openpyxl
 #
 # Syntax: (Parameter Bearer key is mandatory):
-# python3 get_cloudflare_registers.py <Bearer key>
+# python3 get_cloudflare_registers.py <Bearer key> [--output-file file.<html/htm/xls>] [--debug <level>] [--exceptions file.txxt]
+#
+# Example: python3 get_cloudflare_registers.py 4jO0k3G-T0fMLl60aBVZnUT2ad33a --debug 2 --output-file output_file.xls --exceptions exceptions.txt
 #
 # Generating Cloudlfare API authentication Bearer key process:
 #
@@ -16,7 +18,7 @@
 # My profile > API Tokens > Create Tokens > Read all resources > Use Template > Set up a name for API key, example "Scripts_RO"
 # You can use readonly template and modify to remove unused permissions and  > Continue to summary
 # Bearer key is provided only one time
-
+import argparse
 import requests
 import json
 import sys
@@ -56,28 +58,39 @@ def get_zone_identifiers(bearer_token, debug=0):
     }
     if debug>1:
         print("Making request to https://api.cloudflare.com/client/v4/zones/?per_page=400")
-        print("With headers: {headers}")  
+
     response = requests.get('https://api.cloudflare.com/client/v4/zones/?per_page=400', headers=headers)
     data = json.loads(response.text)
     zone_ids = [zone['id'] for zone in data['result']]
     return zone_ids
 
-def write_to_html(records, output_file):
+def write_to_html(records, output_file, exceptions, debug):
     with open(output_file, 'w') as f:
-        f.write('<html><head>')
-        f.write('<title>DNS Records</title>')
-        f.write('<link rel="stylesheet" type="text/css" href="styles.css">')
-        f.write('</head><body>')
-        f.write('<table class="styled-table">')
-        f.write('<tr><th>Type</th><th>Name</th><th>Content</th><th>Proxy Enabled</th></tr>')
+        if debug>1:
+           print("Writting output to html file: ",output_file)
+           print("Exceptions loaded: ",exceptions)
+        f.write('<html><head>\n')
+        f.write('<title>DNS Records</title>\n')
+        f.write('<link rel="stylesheet" type="text/css" href="styles.css">\n')
+        f.write('</head><body>\n')
+        f.write('<table class="styled-table">\n')
+        f.write('<tr><th>Type</th><th>Name</th><th>Content</th><th>Proxy Enabled</th></tr>\n')
         for record in records:
             proxy_enabled = record["proxied"]
-            if proxy_enabled == 0:
-               f.write(f'<tr class="red-row"><td>{record["type"]}</td><td>{record["name"]}</td><td>{record["content"]}</td><td>{record["proxied"]}</td></tr>')
+
+            if debug>2:
+               print("Testing ",record["name"])
+            if record["name"] in exceptions:
+                if debug>2:
+                    print("Exception found on for record: ",record["name"])
+                f.write(f'<tr class="gray-row"><td>{record["type"]}</td><td>{record["name"]}</td><td>{record["content"]}</td><td>{record["proxied"]}</td></tr>\n')
             else:
-               f.write(f'<tr><td>{record["type"]}</td><td>{record["name"]}</td><td>{record["content"]}</td><td>{record["proxied"]}</td></tr>')
-        f.write('</table>')
-        f.write('</body></html>')
+               if proxy_enabled == 0:
+                  f.write(f'<tr class="red-row"><td>{record["type"]}</td><td>{record["name"]}</td><td>{record["content"]}</td><td>{record["proxied"]}</td></tr>\n')
+               else:
+                  f.write(f'<tr><td>{record["type"]}</td><td>{record["name"]}</td><td>{record["content"]}</td><td>{record["proxied"]}</td></tr>\n')
+        f.write('</table>\n')
+        f.write('</body></html>\n')
 
 def write_to_excel(records, output_file):
     wb = openpyxl.Workbook()
@@ -91,7 +104,8 @@ def write_to_excel(records, output_file):
 
     wb.save(output_file)
 
-def main(debug, output_file='output'):
+def main(debug, output_file, exceptions):
+
    if debug:
         print("{:10}{:50}{:120}{:10}".format("Type", "Name", "Content", "Proxy_Enabled"))
 
@@ -126,25 +140,33 @@ def main(debug, output_file='output'):
       if output_file.lower().endswith('.xls') or output_file.lower().endswith('.xlsx'):
          write_to_excel(all_records, output_file)
       elif output_file.lower().endswith('.htm') or output_file.lower().endswith('.html'):
-         write_to_html(all_records, output_file)
+          write_to_html(all_records, output_file, exceptions, debug)
       else:
          print("Format not supported on filename. Please use .xls, .xlsx or .htm .html format for output.")
          print("Example: ")
          print("python3 get_cloudflare_registers.py 4jO0k3G-T0fMLl60aBVZnUT2ad33a [debug] [output_file.xls] ")
 
 if __name__ == '__main__':
-    try:
-       debug = int(sys.argv[2])
-       if len(sys.argv) > 2:
-          output_file = sys.argv[3]
+   try:
+       parser = argparse.ArgumentParser(description='Cloudflare DNS Records Script')
+       parser.add_argument('token', help='Bearer token for Cloudflare API')
+       parser.add_argument('--debug', type=int, default=1, help='Debug level (0, 1, or 2)')
+       parser.add_argument('--output-file', default='none', help='Output file name (.xls, .xlsx, .htm, .html)')
+       parser.add_argument('--exceptions', help='File containing DNS records to exclude')
+
+       args = parser.parse_args()
+
+       if args.exceptions:
+           with open(args.exceptions, 'r') as exceptions_file:
+               exceptions = [line.strip() for line in exceptions_file]
        else:
-          output_file = none
-    except IndexError:
-       debug = 1
-       output_file = 'none'
-    except ValueError:
+           exceptions = []
+
+   except ValueError:
        print("ERROR - Unexpected input")
        print("Syntax: ")
-       print("python3 get_cloudflare_registers.py 4jO0k3G-T0fMLl60aBVZnUT2ad33a [debug] [output_file.xls]")
+       print("python3 get_cloudflare_registers.py 4jO0k3G-T0fMLl60aBVZnUT2ad33a --debug 2 --output-file output_file.xls --exceptions exceptions.txt")
        exit()
-    main(debug,output_file)
+
+
+   main(args.debug, args.output_file, exceptions)
